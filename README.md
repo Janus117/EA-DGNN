@@ -1,11 +1,16 @@
 # EA-DGNN for Dynamic Node Affinity Prediction
 
 ## Requirements
-python 3.10
+python 3.10 
+
 torch 2.1
+
 torch_geometric
+
 torch_scatter 
+
 torch_sparse
+
 ## Scripts
 * Example of run EA_DGNN on the dynamic node affinity prediction on *genre* dataset:
 ```
