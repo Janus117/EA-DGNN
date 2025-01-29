@@ -12,8 +12,10 @@ torch_scatter
 torch_sparse
 ## Preprocessed Dataset
 Genre dataset can be found in https://drive.google.com/file/d/1rMXBPWeWlvJ7SH-A_ZSD6k-5xHvxAueh/view?usp=drive_link
-Reddit dataset https://drive.google.com/file/d/1do5sEz394inv6H6kcsanCFV2xO2BNQ1G/view?usp=drive_link
-Token dataset 
+
+Reddit dataset can be found in https://drive.google.com/file/d/1do5sEz394inv6H6kcsanCFV2xO2BNQ1G/view?usp=drive_link
+
+Token dataset can be found in https://drive.google.com/file/d/1Awcb9U9e9Rs6CNntafstfzp4nN6Htr6_/view?usp=drive_link
 
 
 ## Scripts
