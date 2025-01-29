@@ -24,5 +24,6 @@ python train_gpu.py \
 --second_src_degrees_threshold 5 \
 --second_dst_degrees_threshold 5 \
 --history_length 28 \
---neighbor_num 10 \
+--user_neighbor_num 10 \
+--item_neighbor_num 10
 ```
