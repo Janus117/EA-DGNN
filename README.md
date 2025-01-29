@@ -10,6 +10,9 @@ torch_geometric
 torch_scatter 
 
 torch_sparse
+## Dataset
+Genre dataset can be found in https://drive.google.com/file/d/1rMXBPWeWlvJ7SH-A_ZSD6k-5xHvxAueh/view?usp=drive_link
+
 
 ## Scripts
 * Example of run EA_DGNN on the dynamic node affinity prediction on *genre* dataset:
