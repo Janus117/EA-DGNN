@@ -11,7 +11,6 @@ import argparse
 import numpy as np
 import sys
 
-
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.utils import log_string, cat_ndcg_score, set_random_seed
 from datasets.dataset_pyg import PyGNodePropPredDataset
@@ -296,14 +295,15 @@ if __name__ == "__main__":
     global current_label_t
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--seed", type=int, default=2, help="random seed to use")
-    parser.add_argument("--dataset", type=str, default="tgbn-genre", help="")
+    parser.add_argument("--dataset", type=str, default="tgbn-token", help="")
     parser.add_argument("--emb_size", type=int, default=32, help="")
     parser.add_argument("--lr", type=float, default=0.0001, help="")
     parser.add_argument("--weight_decay", type=float, default=0.0001, help="")
     parser.add_argument("--epochs", type=int, default=30, help="")
     parser.add_argument("--history_length", type=int, default=28, help="")
     parser.add_argument("--msg_threshold", type=float, default=0.2, help="")
-    parser.add_argument("--neighbor_num", type=int, default=10, help="")
+    parser.add_argument("--user_neighbor_num", type=int, default=10, help="")
+    parser.add_argument("--item_neighbor_num", type=int, default=10, help="")
     parser.add_argument("--batch_size", type=int, default=64, help="")
     parser.add_argument("--k", type=int, default=10, help="")
     parser.add_argument(
@@ -325,7 +325,8 @@ if __name__ == "__main__":
     epochs = args.epochs
     history_length = args.history_length
     msg_threshold = args.msg_threshold
-    neighbor_num = args.neighbor_num
+    user_neighbor_num = args.user_neighbor_num
+    item_neighbor_num = args.item_neighbor_num
     second_src_degrees_threshold = args.second_src_degrees_threshold
     second_dst_degrees_threshold = args.second_dst_degrees_threshold
     k = args.k
@@ -426,7 +427,8 @@ if __name__ == "__main__":
         emb_size=emb_size,
         history_length=history_length,
         msg_threshold=msg_threshold,
-        neighbor_num=neighbor_num,
+        user_neighbor_num=user_neighbor_num,
+        item_neighbor_num=item_neighbor_num,
         second_src_degrees_threshold=second_src_degrees_threshold,
         second_dst_degrees_threshold=second_dst_degrees_threshold,
         K=k,

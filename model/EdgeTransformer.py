@@ -24,7 +24,8 @@ class EdgeTransformer(torch.nn.Module):
         history_length=28,
         msg_threshold=0.1,
         dropout=0.2,
-        neighbor_num=10,
+        user_neighbor_num=10,
+        item_neighbor_num=10,
         second_src_degrees_threshold=1.0,
         second_dst_degrees_threshold=1.0,
         K=10,
@@ -45,7 +46,8 @@ class EdgeTransformer(torch.nn.Module):
         self.time_temperature = time_temperature
         self.second_dst_degrees_threshold = second_dst_degrees_threshold
         self.second_src_degrees_threshold = second_src_degrees_threshold
-        self.neighbor_num = neighbor_num
+        self.user_neighbor_num = user_neighbor_num
+        self.item_neighbor_num = item_neighbor_num
         self.msg_threshold = msg_threshold
         self.msg_ts_threshold = (
             history_length
@@ -164,8 +166,11 @@ class EdgeTransformer(torch.nn.Module):
         self.dst_history_timestamp = None
         self.dst_history_mask = None
 
-        self.neighbor_loader = LastNeighborLoader(
-            self.num_nodes, size=neighbor_num, device=device
+        self.user_neighbor_loader = LastNeighborLoader(
+            self.num_nodes, size=user_neighbor_num, device=device
+        )
+        self.item_neighbor_loader = LastNeighborLoader(
+            self.num_classes, size=item_neighbor_num, device=device
         )
         self.assoc = torch.empty(self.num_nodes, dtype=torch.long, device=device)
 
@@ -233,7 +238,8 @@ class EdgeTransformer(torch.nn.Module):
             torch.zeros((self.num_classes, self.history_length)).int().to(self.device)
         )
 
-        self.neighbor_loader.reset_state()
+        self.user_neighbor_loader.reset_state()
+        self.item_neighbor_loader.reset_state()
 
     @torch.no_grad()
     def update_batch(self, src, dst, ts, msg, aux_msg=None):
@@ -287,7 +293,7 @@ class EdgeTransformer(torch.nn.Module):
                     src_second_weight > self.second_src_degrees_threshold
                 ]
                 if src_second_hop.shape[1] > 0:
-                    self.neighbor_loader.insert2(
+                    self.user_neighbor_loader.insert2(
                         src_second_hop[0],
                         src_second_hop[1],
                         uni_src,
@@ -305,7 +311,7 @@ class EdgeTransformer(torch.nn.Module):
                     dst_second_weight > self.second_dst_degrees_threshold
                 ]
                 if dst_second_hop.shape[1] > 0:
-                    self.neighbor_loader.insert(
+                    self.item_neighbor_loader.insert(
                         dst_second_hop[0], dst_second_hop[1], dst_second_weight
                     )
 
@@ -464,7 +470,7 @@ class EdgeTransformer(torch.nn.Module):
         dst_state = self.dropout(dst_state)
 
         n_id = torch.arange(self.num_classes).to(self.device)
-        _, mem_edge_index = self.neighbor_loader(n_id)
+        _, mem_edge_index = self.item_neighbor_loader(n_id)
         dst_state_hop1 = self.dst_conv[0](dst_state, mem_edge_index)
         dst_state = dst_state + dst_state_hop1
 
@@ -472,7 +478,7 @@ class EdgeTransformer(torch.nn.Module):
         return dst_state, loss
 
     def src_rep2(self, label_srcs, label_t):
-        n_id, mem_edge_index = self.neighbor_loader(label_srcs)
+        n_id, mem_edge_index = self.user_neighbor_loader(label_srcs)
         # n_id = label_srcs
         self.assoc[n_id] = torch.arange(n_id.size(0), device=self.device)
         if self.datasets_name == "tgbn-token":
