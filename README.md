@@ -18,6 +18,10 @@ Reddit dataset can be found in https://drive.google.com/file/d/1do5sEz394inv6H6k
 Token dataset can be found in https://drive.google.com/file/d/1Awcb9U9e9Rs6CNntafstfzp4nN6Htr6_/view?usp=drive_link
 
 
+## Installation
+
+Follow these steps to set up the project:
+
 ## Scripts
 * Example of run EA_DGNN on the dynamic node affinity prediction on *genre* dataset:
 ```
@@ -34,3 +38,24 @@ python train_gpu.py \
 --user_neighbor_num 10 \
 --item_neighbor_num 10
 ```
+--dataset: Name of the dataset to use (tgbn-trade, tgbn-genre, tgbn-reddit, or tgbn-token).
+
+--emb_size: Dimension of node embeddings (e.g., 32).
+
+--msg_threshold: Message passing threshold.
+
+--batch_size: Batch size for training.
+
+--lr: Learning rate.
+
+--epochs: Number of training epochs.
+
+--second_src_degrees_threshold: Degree threshold for second-order source nodes.
+
+--second_dst_degrees_threshold: Degree threshold for second-order destination nodes.
+
+--history_length: Length of historical data to consider.
+
+--user_neighbor_num: Number of user neighbors to sample.
+
+--item_neighbor_num: Number of item neighbors to sample.
