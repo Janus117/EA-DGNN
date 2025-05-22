@@ -16,8 +16,8 @@ from utils.utils import log_string, cat_ndcg_score, set_random_seed
 from datasets.dataset_pyg import PyGNodePropPredDataset
 
 # print(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from model.EdgeTransformer import EdgeTransformer
-from model.EdgeTransformer2 import EdgeTransformerSeq
+from model.GRU4Rec import GRU4Rec
+from model.SASRec import SAS4Rec
 from datetime import datetime
 
 global current_label_t
@@ -105,7 +105,6 @@ def train(dataset, model, loader):
                         if label_srcs.size(0) % query_batch_size > 0:
                             step += 1
                         for i in range(step):
-                            dst_rep, reg_loss = model.dst_rep2(current_label_t)
                             ls = label_srcs[
                                 i * query_batch_size : (i + 1) * query_batch_size
                             ]
@@ -114,22 +113,16 @@ def train(dataset, model, loader):
                             ]
 
                             optimizer.zero_grad()
-
-                            src_rep = model.src_rep2(ls, current_label_t)
-                            pred = model(ls, src_rep, dst_rep)
+                            pred = model(ls,)
                             _loss = criterion(pred, l)
-                            _loss += reg_loss
                             _loss.backward()
                             optimizer.step()
                             preds = torch.cat((preds, pred), dim=0)
                             total_loss += float(_loss) * ls.shape[0]
                     else:
-                        dst_rep, reg_loss = model.dst_rep2(current_label_t)
-                        src_rep = model.src_rep2(label_srcs, current_label_t)
                         optimizer.zero_grad()
-                        preds = model(label_srcs, src_rep, dst_rep)
+                        preds = model(label_srcs)
                         loss = criterion(preds, labels)
-                        loss += reg_loss
                         loss.backward()
                         optimizer.step()
                         total_loss += float(loss) * label_srcs.shape[0]
@@ -200,7 +193,9 @@ def test(dataset, model, loader, mode="val"):
                 # tmp_t = torch.cat((tmp_t, t[mask]))
                 tmp_msg = torch.cat((tmp_msg, msg[mask]))
                 if name == "tgbn-reddit":
-                    tmp_aux_msg = torch.cat((tmp_aux_msg, aux_msg[mask]))
+                    tmp_aux_msg = torch.cat(
+                        (tmp_aux_msg, aux_msg[mask])
+                    )
                 src, dst, t, msg, aux_msg = (
                     src[~mask],
                     dst[~mask],
@@ -242,18 +237,14 @@ def test(dataset, model, loader, mode="val"):
                     if label_srcs.size(0) % query_batch_size > 0:
                         step += 1
                     for i in range(step):
-                        dst_rep, _ = model.dst_rep2(current_label_t)
                         ls = label_srcs[
                             i * query_batch_size : (i + 1) * query_batch_size
                         ]
 
-                        src_rep = model.src_rep2(ls, current_label_t)
-                        pred = model(ls, src_rep, dst_rep)
+                        pred = model(ls)
                         preds = torch.cat((preds, pred), dim=0)
                 else:
-                    dst_rep, _ = model.dst_rep2(current_label_t)
-                    src_rep = model.src_rep2(label_srcs, current_label_t)
-                    preds = model(label_srcs, src_rep, dst_rep)
+                    preds = model(label_srcs,)
                 current_label_t += duration
                 np_pred = preds.cpu().detach().numpy()
                 np_true = labels.cpu().detach().numpy()
@@ -294,31 +285,14 @@ if __name__ == "__main__":
     global current_label_t
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--seed", type=int, default=2, help="random seed to use")
-    parser.add_argument("--dataset", type=str, default="tgbn-trade", help="")
-    parser.add_argument("--emb_size", type=int, default=32, help="")
+    parser.add_argument("--dataset", type=str, default="tgbn-genre", help="")
+    parser.add_argument("--emb_size", type=int, default=100, help="")
     parser.add_argument("--lr", type=float, default=0.0001, help="")
     parser.add_argument("--weight_decay", type=float, default=0.0001, help="")
     parser.add_argument("--epochs", type=int, default=30, help="")
-    parser.add_argument("--history_length", type=int, default=28, help="")
-    parser.add_argument("--msg_threshold", type=float, default=0.2, help="")
-    parser.add_argument("--user_neighbor_num", type=int, default=10, help="")
-    parser.add_argument("--item_neighbor_num", type=int, default=10, help="")
+    parser.add_argument("--history_length", type=int, default=40, help="")
     parser.add_argument("--batch_size", type=int, default=64, help="")
-    parser.add_argument("--k", type=int, default=10, help="")
-    parser.add_argument(
-        "--second_src_degrees_threshold", type=float, default=5.0, help=""
-    )
-    parser.add_argument(
-        "--second_dst_degrees_threshold", type=float, default=5.0, help=""
-    )
-    parser.add_argument("--wo_time_embed", type=int, default=0, help="")
-    parser.add_argument("--wo_aux_embed", type=int, default=0, help="")
-    parser.add_argument("--wo_src_spatial", type=int, default=0, help="")
-    parser.add_argument("--wo_dst_spatial", type=int, default=0, help="")
-    parser.add_argument("--wo_aggregation", type=int, default=0, help="")
-    parser.add_argument("--wo_identity", type=int, default=0, help="")
-    parser.add_argument("--enable_linear", type=int, default=1, help="")
-    parser.add_argument("--num_layers", type=int, default=2, help="")
+    parser.add_argument("--model_name", type=str, default='SASRec', help="")
     args = parser.parse_args()
     query_batch_size = args.batch_size
     name = args.dataset
@@ -327,21 +301,8 @@ if __name__ == "__main__":
     weight_decay = args.weight_decay
     epochs = args.epochs
     history_length = args.history_length
-    msg_threshold = args.msg_threshold
-    user_neighbor_num = args.user_neighbor_num
-    item_neighbor_num = args.item_neighbor_num
-    second_src_degrees_threshold = args.second_src_degrees_threshold
-    second_dst_degrees_threshold = args.second_dst_degrees_threshold
-    k = args.k
+    model_name=args.model_name
 
-    wo_time_embed = bool(args.wo_time_embed)
-    wo_aux_embed = bool(args.wo_aux_embed)
-    wo_src_spatial = bool(args.wo_src_spatial)
-    wo_dst_spatial = bool(args.wo_dst_spatial)
-    wo_aggregation = bool(args.wo_aggregation)
-    num_layers = args.num_layers
-    wo_identity = bool(args.wo_identity)
-    enable_linear = bool(args.enable_linear)
     duration = 60 * 60 * 24
     time_temperature = 1e-05
     dataset = PyGNodePropPredDataset(name=name, root="datasets")
@@ -406,11 +367,11 @@ if __name__ == "__main__":
     test_loader = TemporalDataLoader(test_data, batch_size=batch_size, pin_memory=True)
 
     now = datetime.now().strftime("%Y-%m-%d-%H-%M")
-    os.makedirs(f"./logs/DEAT/{args.dataset}", exist_ok=True)
+    os.makedirs(f"./logs/{model_name}/{args.dataset}", exist_ok=True)
     log = open(
         os.path.abspath(os.path.join(__file__, os.pardir))
         + "/logs/"
-        + "DEAT"
+        + model_name
         + "/"
         + args.dataset
         + "/"
@@ -425,49 +386,25 @@ if __name__ == "__main__":
     seed = int(args.seed)
     torch.manual_seed(seed)
     set_random_seed(seed)
-    if wo_identity:
-        model = EdgeTransformerSeq(
+    if model_name=="SASRec":
+        model = SAS4Rec(
             device=device,
-            num_classes=num_classes,
             num_nodes=data.num_nodes,
+            num_items=num_classes,
             datasets_name=name,
-            emb_size=emb_size,
+            embedding_size=emb_size,
             history_length=history_length,
-            msg_threshold=msg_threshold,
-            user_neighbor_num=user_neighbor_num,
-            item_neighbor_num=item_neighbor_num,
-            second_src_degrees_threshold=second_src_degrees_threshold,
-            second_dst_degrees_threshold=second_dst_degrees_threshold,
-            K=k,
-            time_temperature=time_temperature,
-            wo_aux_embed=wo_aux_embed,
-            wo_time_embed=wo_time_embed,
-            wo_dst_spatial=wo_dst_spatial,
-            wo_src_spatial=wo_src_spatial,
-            wo_aggregation=wo_aggregation,
+            hidden_size=emb_size,
         ).to(device)
     else:
-        model = EdgeTransformer(
+        model = GRU4Rec(
             device=device,
-            num_classes=num_classes,
             num_nodes=data.num_nodes,
+            num_items=num_classes,
             datasets_name=name,
-            emb_size=emb_size,
+            embedding_size=emb_size,
             history_length=history_length,
-            msg_threshold=msg_threshold,
-            user_neighbor_num=user_neighbor_num,
-            item_neighbor_num=item_neighbor_num,
-            second_src_degrees_threshold=second_src_degrees_threshold,
-            second_dst_degrees_threshold=second_dst_degrees_threshold,
-            K=k,
-            time_temperature=time_temperature,
-            wo_aux_embed=wo_aux_embed,
-            wo_time_embed=wo_time_embed,
-            wo_dst_spatial=wo_dst_spatial,
-            wo_src_spatial=wo_src_spatial,
-            wo_aggregation=wo_aggregation,
-            enable_linear=enable_linear,
-            num_layers=num_layers,
+            hidden_size=emb_size,
         ).to(device)
     optimizer = torch.optim.AdamW(
         set(model.parameters()),

@@ -263,9 +263,12 @@ class EdgeTransformer(torch.nn.Module):
         self.item_neighbor_loader.reset_state()
 
     @torch.no_grad()
-    def update_batch(self, src, dst, ts, msg, aux_msg=None):
+    def save_batch(self, src, dst, ts, msg, aux_msg=None, data_dict=None):
+        if data_dict is None:
+            data_dict = {}
         if src.shape[0] == 0:
             return
+        data_dict[ts] = {}
         uni_src, src_tem_degrees = torch.unique(src, sorted=True, return_counts=True)
         uni_dst, dst_tem_degrees = torch.unique(dst, sorted=True, return_counts=True)
         mapping_src = {u.item(): idx for idx, u in enumerate(uni_src)}
@@ -279,7 +282,6 @@ class EdgeTransformer(torch.nn.Module):
         # edge_batch_agg1 = scatter(msg, idx, dim_size=dim_size, reduce="sum")
         # edge_batch_agg2 = scatter(msg, idx, dim_size=dim_size, reduce="mean")
         idx_nonzero = torch.nonzero(edge_batch_agg, as_tuple=True)[0]
-
         idx_nonzero1 = torch.nonzero(
             edge_batch_agg > self.msg_threshold, as_tuple=True
         )[0]
@@ -293,6 +295,61 @@ class EdgeTransformer(torch.nn.Module):
         dst_sp_degrees_norm = (dst_sp_degrees - dst_sp_degrees.min() + 1e-05) / (
             dst_sp_degrees.max() - dst_sp_degrees.min() + 1e-05
         )
+        data_dict[ts]["idx_nonzero1"] = idx_nonzero1
+        data_dict[ts]["src_sp_degrees"] = src_sp_degrees
+        dst_agg = scatter(
+            edge_batch_agg[idx_nonzero],
+            uni_dst[idx_nonzero % uni_dst.shape[0]],
+            reduce="mean",
+        )
+        dst_idx_nonzero = torch.nonzero(dst_agg, as_tuple=True)[0]
+        dst_msg = torch.stack(
+            (
+                dst_agg[dst_idx_nonzero],
+                dst_sp_degrees_norm,
+            ),
+            dim=-1,
+        )
+
+        if self.datasets_name == "tgbn-reddit":
+            aux_edge_batch_agg = scatter(aux_msg, idx, dim_size=dim_size, reduce="mean")
+            aux_dst_agg = scatter(
+                aux_edge_batch_agg[idx_nonzero],
+                uni_dst[idx_nonzero % uni_dst.shape[0]],
+                reduce="mean",
+            )
+            dst_msg = torch.cat((dst_msg, aux_dst_agg[uni_dst].unsqueeze(-1)), dim=-1)
+
+        data_dict[ts]["uni_dst"] = uni_dst
+        data_dict[ts]["uni_src"] = uni_src
+        data_dict[ts]["dst_msg"] = dst_msg
+
+        d = uni_dst[idx_nonzero % uni_dst.shape[0]]
+        s = uni_src[idx_nonzero // uni_dst.shape[0]] - self.offset
+        src_msg = torch.stack(
+            (
+                edge_batch_agg[idx_nonzero],
+                edges_num / src_tem_degrees[idx_nonzero // uni_dst.shape[0]],
+            ),
+            dim=-1,
+        )
+        if self.datasets_name == "tgbn-reddit":
+            src_msg = torch.cat(
+                (src_msg, aux_edge_batch_agg[idx_nonzero].unsqueeze(-1)), dim=-1
+            )
+        data_dict[ts]["s"] = s
+        data_dict[ts]["d"] = d
+        data_dict[ts]["src_msg"] = src_msg
+
+    def update_batch(self, ts, data_dict):
+        idx_nonzero1 = data_dict[ts]["idx_nonzero1"]
+        uni_dst = data_dict[ts]["uni_dst"]
+        uni_src = data_dict[ts]["uni_src"]
+        dst_msg = data_dict[ts]["dst_msg"]
+        src_msg = data_dict[ts]["src_msg"]
+        s = data_dict[ts]["s"]
+        d = data_dict[ts]["d"]
+        src_sp_degrees= data_dict[ts]["src_sp_degrees"]
         if idx_nonzero1.shape[0] > 0:
             edge_index = torch.stack(
                 (
@@ -335,113 +392,27 @@ class EdgeTransformer(torch.nn.Module):
                     self.item_neighbor_loader.insert(
                         dst_second_hop[0], dst_second_hop[1], dst_second_weight
                     )
-
-        dst_agg = scatter(
-            edge_batch_agg[idx_nonzero],
-            uni_dst[idx_nonzero % uni_dst.shape[0]],
-            reduce="mean",
-        )
-        # dst_agg1 = scatter(
-        #     edge_batch_agg[idx_nonzero],
-        #     uni_dst[idx_nonzero % uni_dst.shape[0]],
-        #     reduce="max",
-        # )
-        # dst_agg2 = scatter(
-        #     edge_batch_agg[idx_nonzero],
-        #     uni_dst[idx_nonzero % uni_dst.shape[0]],
-        #     reduce="sum",
-        # )
-        dst_idx_nonzero = torch.nonzero(dst_agg, as_tuple=True)[0]
-        if self.wo_aux_embed:
-            dst_msg = dst_agg[dst_idx_nonzero].unsqueeze(-1)
-        else:
-            dst_msg = torch.stack(
-                (
-                    dst_agg[dst_idx_nonzero],
-                    # dst_agg1[dst_idx_nonzero],
-                    # dst_agg2[dst_idx_nonzero],
-                    dst_sp_degrees_norm,
-                ),
-                dim=-1,
-            )
-
-        if self.datasets_name == "tgbn-reddit":
-            aux_edge_batch_agg = scatter(aux_msg, idx, dim_size=dim_size, reduce="mean")
-            aux_dst_agg = scatter(
-                aux_edge_batch_agg[idx_nonzero],
-                uni_dst[idx_nonzero % uni_dst.shape[0]],
-                reduce="mean",
-            )
-            dst_msg = torch.cat((dst_msg, aux_dst_agg[uni_dst].unsqueeze(-1)), dim=-1)
-
-        # self.dst_history[uni_dst, 1:, :] = self.dst_history[uni_dst, 0:-1, :]
         self.dst_history[uni_dst] = torch.roll(
             self.dst_history[uni_dst], shifts=1, dims=-2
         )
         self.dst_history[uni_dst, 0, :] = dst_msg
-
         self.dst_history_timestamp[uni_dst] = torch.roll(
             self.dst_history_timestamp[uni_dst], shifts=1, dims=-1
         )
         self.dst_history_timestamp[uni_dst, 0] = ts
-        # self.dst_history_mask[uni_dst, 1:] = self.dst_history_mask[uni_dst, 0:-1]
-        # self.dst_history_mask[uni_dst, 0] = False
 
-        d = uni_dst[idx_nonzero % uni_dst.shape[0]]
-        s = uni_src[idx_nonzero // uni_dst.shape[0]] - self.offset
-        if self.wo_aux_embed:
-            src_msg = edge_batch_agg[idx_nonzero].unsqueeze(-1)
-        else:
-            src_msg = torch.stack(
-                (
-                    edge_batch_agg[idx_nonzero],
-                    # edge_batch_agg1[idx_nonzero],
-                    # edge_batch_agg2[idx_nonzero],
-                    edges_num / src_tem_degrees[idx_nonzero // uni_dst.shape[0]],
-                ),
-                dim=-1,
-            )
-        if self.datasets_name == "tgbn-reddit":
-            src_msg = torch.cat(
-                (src_msg, aux_edge_batch_agg[idx_nonzero].unsqueeze(-1)), dim=-1
-            )
         if self.datasets_name == "tgbn-token":
             src_msg = src_msg.cpu()
             s = s.cpu()
             d = d.cpu()
-        # self.src_history[s, d, 1:, :] = self.src_history[s, d, 0:-1, :]
-        # self.src_history[s, d, 0, :] = src_msg
-        # self.src_history_timestamp[s, d, 1:] = self.src_history_timestamp[s, d, 0:-1]
-        # self.src_history_timestamp[s, d, 0] = ts
-        if self.wo_aggregation:
-            src = src.cpu().numpy().tolist()
-            dst = dst.cpu().numpy().tolist()
-            msg = msg.cpu().numpy().tolist()
-            for s, d, m in zip(src, dst, msg):
-                s = s - self.offset
-                self.src_history[s, d] = torch.roll(
-                    self.src_history[s, d], shifts=1, dims=-2
-                )
-                self.src_history[s, d, 0, :] = m
-                self.src_history_timestamp[s, d] = torch.roll(
-                    self.src_history_timestamp[s, d], shifts=1, dims=-1
-                )
-                self.src_history_timestamp[s, d, 0] = ts
-        else:
-            self.src_history[s, d] = torch.roll(
-                self.src_history[s, d], shifts=1, dims=-2
-            )
-            # self.src_history[s, d, 1:, :] = self.src_history[s, d, 0:-1, :]
-            self.src_history[s, d, 0, :] = src_msg
-            # self.src_history_timestamp[s, d, 1:] = self.src_history_timestamp[
-            #     s, d, 0:-1
-            # ]
-            self.src_history_timestamp[s, d] = torch.roll(
-                self.src_history_timestamp[s, d], shifts=1, dims=-1
-            )
-            self.src_history_timestamp[s, d, 0] = ts
-        # self.src_history_mask[s, d, 1:] = self.src_history_mask[s, d, 0:-1]
-        # self.src_history_mask[s, d, 0] = False
+        self.src_history[s, d] = torch.roll(
+            self.src_history[s, d], shifts=1, dims=-2
+        )
+        self.src_history[s, d, 0, :] = src_msg
+        self.src_history_timestamp[s, d] = torch.roll(
+            self.src_history_timestamp[s, d], shifts=1, dims=-1
+        )
+        self.src_history_timestamp[s, d, 0] = ts
 
     def reg_loss(self, alpha, logit):
         log_pi = logit - torch.logsumexp(logit, dim=-1, keepdim=True).repeat(

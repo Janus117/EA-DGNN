@@ -18,7 +18,7 @@ from torch_geometric.nn.models.tgn import (
     LastNeighborLoader,
 )
 
-from model.BaseModule import NodeCoPredictor
+from model.BaseModule import NodeCoPredictor, LightGCN, NodePredictor
 from datasets.dataset_pyg import PyGNodePropPredDataset
 from sklearn.metrics import ndcg_score
 from utils.utils import set_random_seed, log_string
@@ -28,9 +28,9 @@ parser = argparse.ArgumentParser(
 )
 parser.add_argument("-s", "--seed", type=int, default=1, help="random seed to use")
 parser.add_argument(
-    "--model_name", type=str, default="TGN", choices=["TGN", "DyRep", "JODIE"]
+    "--model_name", type=str, default="LightGCN", choices=["TGN", "DyRep", "JODIE","LightGCN"]
 )
-parser.add_argument("--dataset", type=str, default="tgbn-genre", help="")
+parser.add_argument("--dataset", type=str, default="tgbn-trade", help="")
 
 args = parser.parse_args()
 
@@ -130,8 +130,21 @@ if model_name == "JODIE":
         .to(device)
         .float()
     )
+if model_name in ["LightGCN"]:
+    memory = MemoryModel(
+        model_name=model_name,
+        num_nodes=data.num_nodes,
+        raw_msg_dim=data.msg.size(-1),
+        memory_dim=memory_dim,
+        time_dim=time_dim,
+        message_module=IdentityMessage(data.msg.size(-1), memory_dim, time_dim),
+        aggregator_module=LastAggregator(),
+        memory_updater_type="gru",
+    ).to(device)
+    post_embedding = LightGCN(num_layers=2).to(device).float()
 
-node_pred = NodeCoPredictor(in_dim=embedding_dim).to(device)
+
+node_pred = NodePredictor(in_dim=embedding_dim,out_dim=num_classes).to(device)
 optimizer = torch.optim.AdamW(
     set(memory.parameters())
     | set(post_embedding.parameters())
@@ -213,7 +226,8 @@ def train():
 
                         optimizer.zero_grad()
 
-                        n_id = torch.cat((ls, dst_id))
+                        # n_id = torch.cat((ls, dst_id))
+                        n_id=ls
                         n_id_neighbors, mem_edge_index, e_id = neighbor_loader(n_id)
                         assoc[n_id_neighbors] = torch.arange(
                             n_id_neighbors.size(0), device=device
@@ -235,8 +249,14 @@ def train():
                                 current_label_t,
                                 last_update,
                             )
+                        if model_name in ["LightGCN"]:
+                            z = post_embedding(
+                                z,
+                                mem_edge_index,
+                                data.msg[e_id].to(device)[:,0],
+                            )
                         optimizer.zero_grad()
-                        pred = node_pred(z[assoc[ls]], z[assoc[dst_id]])
+                        pred = node_pred(z[assoc[ls]])
                         loss = criterion(pred, l)
                         loss.backward()
                         optimizer.step()
@@ -245,7 +265,8 @@ def train():
                         memory.detach()
 
                 else:
-                    n_id = torch.cat((label_srcs, dst_id))
+                    # n_id = torch.cat((label_srcs, dst_id))
+                    n_id=label_srcs
                     n_id_neighbors, mem_edge_index, e_id = neighbor_loader(n_id)
                     assoc[n_id_neighbors] = torch.arange(
                         n_id_neighbors.size(0), device=device
@@ -267,8 +288,15 @@ def train():
                             current_label_t,
                             last_update,
                         )
+                    if model_name in ["LightGCN"]:
+                        z = post_embedding(
+                            z,
+                            mem_edge_index,
+                            data.msg[e_id].to(device)[:, 0],
+                        )
+
                     optimizer.zero_grad()
-                    preds = node_pred(z[assoc[label_srcs]], z[assoc[dst_id]])
+                    preds = node_pred(z[assoc[label_srcs]])
                     loss = criterion(preds, labels)
                     loss.backward()
                     optimizer.step()
@@ -335,7 +363,8 @@ def test(loader):
                             i * query_batch_size : (i + 1) * query_batch_size
                         ]
 
-                        n_id = torch.cat((ls, dst_id))
+                        # n_id = torch.cat((ls, dst_id))
+                        n_id=ls
                         n_id_neighbors, mem_edge_index, e_id = neighbor_loader(n_id)
                         assoc[n_id_neighbors] = torch.arange(
                             n_id_neighbors.size(0), device=device
@@ -357,11 +386,18 @@ def test(loader):
                                 current_label_t,
                                 last_update,
                             )
-                        pred = node_pred(z[assoc[ls]], z[assoc[dst_id]])
+                        if model_name in ["LightGCN"]:
+                            z = post_embedding(
+                                z,
+                                mem_edge_index,
+                                data.msg[e_id].to(device)[:,0],
+                            )
+                        pred = node_pred(z[assoc[ls]])
                         preds = torch.cat((preds, pred), dim=0)
 
                 else:
-                    n_id = torch.cat((label_srcs, dst_id))
+                    # n_id = torch.cat((label_srcs, dst_id))
+                    n_id=label_srcs
                     n_id_neighbors, mem_edge_index, e_id = neighbor_loader(n_id)
                     assoc[n_id_neighbors] = torch.arange(
                         n_id_neighbors.size(0), device=device
@@ -383,8 +419,14 @@ def test(loader):
                             current_label_t,
                             last_update,
                         )
+                    if model_name in ["LightGCN"]:
+                        z = post_embedding(
+                            z,
+                            mem_edge_index,
+                            data.msg[e_id].to(device)[:, 0],
+                        )
                     optimizer.zero_grad()
-                    preds = node_pred(z[assoc[label_srcs]], z[assoc[dst_id]])
+                    preds = node_pred(z[assoc[label_srcs]])
                 np_pred = preds.cpu().detach().numpy()
                 np_true = labels.cpu().detach().numpy()
                 current_label_t += duration

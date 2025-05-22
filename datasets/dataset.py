@@ -191,6 +191,11 @@ class NodePropPredDataset(object):
         self.label_ts = np.array(list(node_label_dict.keys()))
         self.label_ts = np.sort(self.label_ts)
 
+    @property
+    def num_nodes(self) -> int:
+        r"""Returns the number of nodes in the graph."""
+        return max(int(self.full_data['sources'].max()), int(self.full_data['destinations'].max())) + 1
+
     def generate_splits(
         self,
         full_data: Dict[str, Any],
